@@ -407,6 +407,7 @@ let ui = {
   authorFilter: null,
   tempCover: '',
   libCardBook: null,    // 図書カードシートを開いている本
+  libcardSearch: '',    // 図書カードタブの検索文字列
   confirmMsg: '',
   confirmCb: null,
   confirmPrevModal: null,
@@ -610,13 +611,16 @@ function buildLibCards(){
     if(!recs||recs.length===0) return '';
     return recs.reduce((mx,r)=>{ const d=r.readDate||r.borrowDate||r.date||''; return d>mx?d:mx; },'');
   };
-  const books=[...state.books].sort((a,b)=>{
-    const da=latestDate(a), db=latestDate(b);
-    if(da===''&&db==='') return a.title.localeCompare(b.title,'ja');
-    if(da==='') return 1;
-    if(db==='') return -1;
-    return db>da?1:db<da?-1:0;
-  });
+  const q = ui.libcardSearch.trim().toLowerCase();
+  const books=[...state.books]
+    .filter(b => !q || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q))
+    .sort((a,b)=>{
+      const da=latestDate(a), db=latestDate(b);
+      if(da===''&&db==='') return a.title.localeCompare(b.title,'ja');
+      if(da==='') return 1;
+      if(db==='') return -1;
+      return db>da?1:db<da?-1:0;
+    });
   return `
     <div class="section-head">
       <div class="section-title">図書カード</div>
@@ -625,8 +629,17 @@ function buildLibCards(){
     <p style="font-size:.75rem;color:var(--text-muted);margin-bottom:14px;line-height:1.6">
       読んだ本を選んで、自分の記録（名前・借りた日・読んだ日・メモ）を書き込めます。誰でも読んだり書いたりできます。
     </p>
+    <div class="search-bar" style="padding:0 0 12px">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input id="libcard-search-input" class="search-input" type="search" placeholder="タイトル・著者で検索…" value="${escH(ui.libcardSearch)}" autocomplete="off">
+        ${ui.libcardSearch?`<button class="search-clear" id="libcard-search-clear">✕</button>`:''}
+      </div>
+    </div>
     ${books.length===0
-      ?`<div class="empty"><div class="e-icon">📇</div><p>まだ本が登録されていません</p></div>`
+      ? (state.books.length===0
+          ? `<div class="empty"><div class="e-icon">📇</div><p>まだ本が登録されていません</p></div>`
+          : `<div class="empty"><div class="e-icon">🔍</div><p>「${escH(ui.libcardSearch)}」に一致する本はありません</p></div>`)
       :`<div class="libcard-list">${books.map(b=>buildLibCardRow(b)).join('')}</div>`}
   `;
 }
@@ -874,6 +887,13 @@ function bindAll(){
       const b=state.books.find(x=>x.id===el.dataset.libcardId);
       if(b){ ui.libCardBook=b; ui.modal='libcard'; render(); }
     }));
+  // 図書カード検索
+  const lcs=document.getElementById('libcard-search-input');
+  if(lcs){
+    lcs.addEventListener('input',e=>{ ui.libcardSearch=e.target.value; render(); requestAnimationFrame(()=>{ const el=document.getElementById('libcard-search-input'); if(el){ el.focus(); const l=el.value.length; el.setSelectionRange(l,l); } }); });
+    lcs.addEventListener('compositionend',e=>{ ui.libcardSearch=e.target.value; render(); });
+  }
+  on('libcard-search-clear',()=>{ ui.libcardSearch=''; render(); });
   // 図書カードシート
   const lcOverlay=document.getElementById('libcard-overlay');
   if(lcOverlay) lcOverlay.addEventListener('click',e=>{ if(e.target===lcOverlay){ ui.modal=null; render(); } });
@@ -929,6 +949,11 @@ function bindAll(){
     el.addEventListener('click',()=>{
       const r=state.requests.find(x=>x.id===el.dataset.id);
       if(r){ r.status='fulfilled'; save(); toast('対応済みにしました'); render(); }
+    }));
+  document.querySelectorAll('[data-action="pending-req"]').forEach(el=>
+    el.addEventListener('click',()=>{
+      const r=state.requests.find(x=>x.id===el.dataset.id);
+      if(r){ r.status='pending'; save(); toast('待ちに戻しました'); render(); }
     }));
   document.querySelectorAll('[data-action="delete-req"]').forEach(el=>
     el.addEventListener('click',()=>{
@@ -1103,6 +1128,7 @@ function buildRequests(){
   `;
 }
 function buildRequestCard(r){
+  const isPending = r.status==='pending';
   return `<div class="request-card">
     <div class="req-title">${escH(r.title)}</div>
     ${r.author?`<div class="req-author">${escH(r.author)}</div>`:''}
@@ -1111,10 +1137,11 @@ function buildRequestCard(r){
       <span>${fmt(r.date)}</span>
       <span class="req-status ${r.status}">${r.status==='fulfilled'?'✓ 対応済み':'⏳ 待ち'}</span>
     </div>
-    ${state.isAdmin?`<div class="req-actions">
-      ${r.status==='pending'?`<button class="btn btn-outline btn-sm" data-action="fulfill-req" data-id="${r.id}">✓ 対応済みにする</button>`:''}
+    <div class="req-actions">
+      ${isPending?`<button class="btn btn-outline btn-sm" data-action="fulfill-req" data-id="${r.id}">✓ 対応済みにする</button>`
+                 :`<button class="btn btn-outline btn-sm" data-action="pending-req" data-id="${r.id}">↩ 待ちに戻す</button>`}
       <button class="btn btn-danger btn-sm" data-action="delete-req" data-id="${r.id}">削除</button>
-    </div>`:''}
+    </div>
   </div>`;
 }
 function submitRequest(){
