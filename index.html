@@ -890,8 +890,18 @@ function bindAll(){
   // 図書カード検索
   const lcs=document.getElementById('libcard-search-input');
   if(lcs){
-    lcs.addEventListener('input',e=>{ ui.libcardSearch=e.target.value; render(); requestAnimationFrame(()=>{ const el=document.getElementById('libcard-search-input'); if(el){ el.focus(); const l=el.value.length; el.setSelectionRange(l,l); } }); });
-    lcs.addEventListener('compositionend',e=>{ ui.libcardSearch=e.target.value; render(); });
+    let _lcComposing=false;
+    lcs.addEventListener('compositionstart',()=>{ _lcComposing=true; });
+    lcs.addEventListener('compositionend',e=>{
+      _lcComposing=false;
+      ui.libcardSearch=e.target.value;
+      refreshLibcardList();
+    });
+    lcs.addEventListener('input',e=>{
+      if(_lcComposing) return;
+      ui.libcardSearch=e.target.value;
+      refreshLibcardList();
+    });
   }
   on('libcard-search-clear',()=>{ ui.libcardSearch=''; render(); });
   // 図書カードシート
@@ -1072,6 +1082,48 @@ function refreshGridKeepFocus(){
     paintCovers(); bindBookCards(frag);
   }
 }
+function refreshLibcardList(){
+  const q = ui.libcardSearch.trim().toLowerCase();
+  const latestDate = b => {
+    const recs = state.records[b.id];
+    if(!recs||recs.length===0) return '';
+    return recs.reduce((mx,r)=>{ const d=r.readDate||r.borrowDate||r.date||''; return d>mx?d:mx; },'');
+  };
+  const books=[...state.books]
+    .filter(b => !q || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q))
+    .sort((a,b)=>{
+      const da=latestDate(a), db=latestDate(b);
+      if(da===''&&db==='') return a.title.localeCompare(b.title,'ja');
+      if(da==='') return 1; if(db==='') return -1;
+      return db>da?1:db<da?-1:0;
+    });
+  const listArea = document.querySelector('.libcard-list, .empty[data-libcard-empty]');
+  const main = document.querySelector('.main');
+  if(!main) return;
+  // クリアボタンの表示切替
+  const clearBtn = document.getElementById('libcard-search-clear');
+  if(clearBtn) clearBtn.style.display = ui.libcardSearch ? '' : 'none';
+  // リスト部分だけ差し替え
+  const newEl = document.createElement('div');
+  if(books.length===0){
+    newEl.className='empty'; newEl.dataset.libcardEmpty='1';
+    newEl.innerHTML=state.books.length===0
+      ?`<div class="e-icon">📇</div><p>まだ本が登録されていません</p>`
+      :`<div class="e-icon">🔍</div><p>「${escH(ui.libcardSearch)}」に一致する本はありません</p>`;
+  } else {
+    newEl.className='libcard-list';
+    newEl.innerHTML=books.map(b=>buildLibCardRow(b)).join('');
+  }
+  if(listArea) listArea.replaceWith(newEl);
+  else main.appendChild(newEl);
+  // 行クリックを再バインド
+  newEl.querySelectorAll('.libcard-row[data-libcard-id]').forEach(el=>
+    el.addEventListener('click',()=>{
+      const b=state.books.find(x=>x.id===el.dataset.libcardId);
+      if(b){ ui.libCardBook=b; ui.modal='libcard'; render(); }
+    }));
+}
+
 function restoreSearchFocus(){
   requestAnimationFrame(()=>{
     const si=document.getElementById('search-input');
